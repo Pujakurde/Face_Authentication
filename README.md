@@ -1,33 +1,38 @@
 # Face Authentication System
 
-This project implements an iPhone-like face authentication system with liveness detection and anti-spoofing capabilities using Python, OpenCV, and MediaPipe.  
-The system authenticates users using a live camera feed and denies access to spoofing attempts such as photos, videos, or screen replays.
+This project implements an **iPhone-like Face Authentication system** with **liveness detection and anti-spoofing** using **Python, OpenCV, and MediaPipe**.  
+The system verifies users using a **live camera feed** and prevents spoofing attempts such as **printed photos, static images, or screen replays**.
+
+The entire system works **fully offline** without using any cloud services or external APIs.
 
 ---
 
 ## Features
 
 - Real-time face detection  
-- Facial landmark extraction  
+- Facial landmark extraction (468 landmarks)  
 - Liveness detection (eye blink, head movement, natural facial motion)  
-- Face registration for authorized users  
-- Face recognition using numerical embeddings  
-- Access control (Access Granted / Access Denied)  
-- Interactive Face-ID–style UI feedback  
-- Fully offline system (no cloud or external APIs)
+- Face-ID–style guided interaction  
+- Anti-spoofing against photos and static images  
+- Fully offline processing  
+
+> ⚠️ **Note:**  
+> Authentication logic, biometric embeddings, and registered face data are intentionally **excluded from this repository** for privacy and security reasons.
 
 ---
 
 ## System Overview
 
-The system operates on image frames captured from a live camera feed.  
-Each frame is processed independently to detect and analyze human faces.  
-Detected face regions are passed through multiple verification stages before making a final authentication decision.
+The system processes image frames captured from a live webcam.  
+Each frame is analyzed independently to detect a face, extract facial landmarks, and verify liveness before providing feedback to the user.
 
 ---
+
 ## System Architecture
 
-Camera --> Face Detection --> Face Landmarks --> Liveness Detection --> Face Recognition --> Authentication Decision --> UI Feedback
+Camera --> Face Detection --> Face Landmarks --> Liveness Detection --> Authentication
+
+---
 
 
 ---
@@ -46,20 +51,19 @@ Camera --> Face Detection --> Face Landmarks --> Liveness Detection --> Face Rec
 
 ### 2. Face Detection Module (`face_detection.py`)
 
-Face detection identifies the presence and position of human faces in an image or video frame.
+Face detection identifies the presence and position of human faces in each frame.
 
 **Responsibilities**
-- Detect faces in each frame  
-- Draw bounding boxes around detected faces  
-- Support single and multiple face detection  
+- Detect faces in real time  
+- Ensure face presence  
+- Handle single and multiple face scenarios  
 
 **Tool Used**
-- MediaPipe Face Detection (Google)
+- MediaPipe Face Detection  
 
 **Output**
-- Bounding boxes  
-- Detection confidence score  
-- 6 basic facial landmarks  
+- Face bounding boxes  
+- Detection confidence  
 
 **Limitations**
 - Does not identify the person  
@@ -70,7 +74,7 @@ Face detection identifies the presence and position of human faces in an image o
 
 ### 3. Face Landmarks Module (`face_landmarks.py`)
 
-Face landmarks represent specific points on the human face such as the eyes, nose, mouth, jawline, and facial contours.
+Face landmarks represent key points on the human face such as eyes, nose, mouth, and jawline.
 
 **Details**
 - Uses MediaPipe Face Mesh  
@@ -79,37 +83,36 @@ Face landmarks represent specific points on the human face such as the eyes, nos
 
 **Purpose**
 - Eye blink detection  
-- Head pose estimation  
-- Natural facial motion tracking  
-- Support liveness detection and recognition  
+- Head movement estimation  
+- Support liveness verification  
 
 ---
 
-### 4. Face Registration Module (`register_face.py`)
+### 4. Face-ID System Controller (`face_id_sys.py`)
 
-- Registers an authorized user  
-- Requires successful liveness verification  
-- Converts facial landmarks into numerical feature embeddings  
-- Stores embeddings locally (no raw face images)  
+- Main controller of the system  
+- Integrates camera, face detection, and landmarks  
+- Guides the user with Face-ID–style instructions  
+- Displays real-time UI feedback  
 
 ---
 
-### 5. Liveness Detection Module (`liveness.py`)
+## Liveness Detection (Anti-Spoofing)
 
-Liveness detection verifies whether the detected face belongs to a real, live human.
+Liveness detection verifies whether the detected face belongs to a **real, live human**.
 
 **Why It Is Needed**  
-Without liveness detection, attackers could gain access using printed photos, static images, or video replays.
+Without liveness detection, attackers could gain access using photos or static images.
 
 **Liveness Checks**
 - Eye blinking  
-- Head movement (left / right)  
+- Head movement (left / right / up)  
 - Natural facial motion across frames  
 
 **Spoofing Attacks Prevented**
 - Printed photos  
 - Static images  
-- Video or screen replay attacks  
+- Screen replay attempts  
 
 **Scope**
 - Verifies live presence only  
@@ -117,41 +120,20 @@ Without liveness detection, attackers could gain access using printed photos, st
 
 ---
 
-### 6. Face Recognition Module (`face_recognition.py`)
+## Privacy & Security
 
-- Compares live face embeddings with registered embeddings  
-- Uses numerical distance comparison  
-- Determines whether the face matches an authorized user  
-
+- No face images stored  
+- No biometric embeddings stored  
+- No cloud or external API usage  
+- Fully offline processing  
 ---
 
-### 7. Authentication Module (`authentication.py`)
+## How to Run
 
-This module makes the final access decision.
-
-**Access is granted only if**
-- A human face is detected  
-- Exactly one face is present  
-- Liveness detection passes  
-- Face matches registered identity  
-
-If any condition fails, access is denied.
-
----
-
-### 8. Interactive UI
-
-The system provides Face-ID–style UI feedback:
-
-- Live camera feed  
-- Face guide overlay  
-- Status messages:
-  - FACE NOT DETECTED  
-  - MULTIPLE FACES  
-  - FAKE FACE  
-  - AUTHENTICATING  
-  - ACCESS GRANTED  
-  - ACCESS DENIED  
-- Color-based feedback (red / yellow / green)  
-
-UI is implemented using OpenCV overlays and is extendable to Tkinter.
+1. Install dependencies:
+```bash
+pip install opencv-python mediapipe numpy
+2. Run the script:
+```bash
+python face_id_sys.py
+3. Follow the on-screen Face-ID–style instructions.
