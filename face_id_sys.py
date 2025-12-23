@@ -211,10 +211,12 @@ while True:
             color = (0, 0, 255)
 
     cv2.putText(frame, status, (30, 40),
+    
                 cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
 
     cv2.putText(frame, f"Pose: {pose}", (30, 80),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255
+                , 255), 2)
 
     cv2.imshow("Face ID System", frame)
 
