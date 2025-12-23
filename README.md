@@ -3,8 +3,6 @@
 This project implements an **iPhone-like Face Authentication system** with **liveness detection and anti-spoofing** using **Python, OpenCV, and MediaPipe**.  
 The system verifies users using a **live camera feed** and prevents spoofing attempts such as **printed photos, static images, or screen replays**.
 
-The entire system works **fully offline** without using any cloud services or external APIs.
-
 ---
 
 ## Features
@@ -27,7 +25,7 @@ Each frame is analyzed independently to detect a face, extract facial landmarks,
 
 ## System Architecture
 
-Camera --> Face Detection --> Face Landmarks --> Liveness Detection --> Authentication
+Camera --> Face Detection --> Face Landmarks --> Face Registration --> Liveness Detection --> Authentication
 
 ---
 
@@ -130,7 +128,9 @@ Without liveness detection, attackers could gain access using photos or static i
 1. Install dependencies:
 ```bash
 pip install opencv-python mediapipe numpy
+```
 2. Run the script:
 ```bash
 python face_id_sys.py
+```
 3. Follow the on-screen Face-ID–style instructions.
