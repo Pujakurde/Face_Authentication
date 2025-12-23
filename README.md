@@ -30,8 +30,6 @@ Camera --> Face Detection --> Face Landmarks --> Face Registration --> Liveness 
 ---
 
 
----
-
 ## Core Modules
 
 ---
