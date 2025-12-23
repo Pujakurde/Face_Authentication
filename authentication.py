@@ -1,132 +1,178 @@
+# authenticate.py
+"""
+Stage 6: Face Authentication with Liveness
+
+- Uses face_detection.py
+- Uses MediaPipe Face Mesh
+- SAME embedding logic as Stage-4 registration
+- Blink-based liveness detection
+- Access Granted / Denied
+"""
+
 import cv2
 import mediapipe as mp
 import numpy as np
 import os
-from collections import deque
+from face_detection import detect_faces
 
-# ---------------- FILES ----------------
-REGISTERED_FACE = "registered_face.npy"
+# ---------------- CONFIG ----------------
+BASE_DIR = "face_embeddings"
+MATCH_THRESHOLD = 0.55
 
-# ---------------- LANDMARK INDEXES ----------------
+# ---------------- MEDIAPIPE ----------------
+mp_face_mesh = mp.solutions.face_mesh
+face_mesh = mp_face_mesh.FaceMesh(
+    refine_landmarks=True,
+    min_detection_confidence=0.6,
+    min_tracking_confidence=0.6
+)
+
+cap = cv2.VideoCapture(0)
+
+# ---------------- LIVENESS (BLINK) ----------------
 LEFT_EYE = [33, 160, 158, 133, 153, 144]
 RIGHT_EYE = [362, 385, 387, 263, 373, 380]
-NOSE_TIP = 1
 
-# ---------------- THRESHOLDS ----------------
-EAR_THRESHOLD = 0.25
-EYE_CLOSED_FRAMES = 3
-NOSE_MOVE_THRESHOLD = 0.01
-MOTION_THRESHOLD = 0.0005
-MATCH_THRESHOLD = 0.6
+EAR_THRESHOLD = 0.21
+BLINK_FRAMES = 2
 
-# ---------------- UTIL FUNCTIONS ----------------
-def eye_aspect_ratio(eye, landmarks, w, h):
-    pts = [(int(landmarks[i].x * w), int(landmarks[i].y * h)) for i in eye]
-    A = np.linalg.norm(np.array(pts[1]) - np.array(pts[5]))
-    B = np.linalg.norm(np.array(pts[2]) - np.array(pts[4]))
-    C = np.linalg.norm(np.array(pts[0]) - np.array(pts[3]))
-    return (A + B) / (2.0 * C)
 
+class BlinkDetector:
+    def __init__(self):
+        self.counter = 0
+        self.blinked = False
+
+    def _ear(self, landmarks, idx):
+        p = [landmarks[i] for i in idx]
+        A = np.linalg.norm([p[1].x - p[5].x, p[1].y - p[5].y])
+        B = np.linalg.norm([p[2].x - p[4].x, p[2].y - p[4].y])
+        C = np.linalg.norm([p[0].x - p[3].x, p[0].y - p[3].y])
+        return (A + B) / (2.0 * C)
+
+    def update(self, landmarks):
+        ear = (
+            self._ear(landmarks, LEFT_EYE) +
+            self._ear(landmarks, RIGHT_EYE)
+        ) / 2
+
+        if ear < EAR_THRESHOLD:
+            self.counter += 1
+        else:
+            if self.counter >= BLINK_FRAMES:
+                self.blinked = True
+            self.counter = 0
+
+        return self.blinked
+
+
+blink_detector = BlinkDetector()
+
+# ---------------- LOAD REGISTERED EMBEDDINGS ----------------
+def load_registered_faces():
+    users = {}
+
+    for user in os.listdir(BASE_DIR):
+        user_dir = os.path.join(BASE_DIR, user)
+        if not os.path.isdir(user_dir):
+            continue
+
+        embeddings = []
+        for file in os.listdir(user_dir):
+            if file.endswith(".npy"):
+                emb = np.load(os.path.join(user_dir, file))
+                embeddings.append(emb)
+
+        if embeddings:
+            users[user] = embeddings
+
+    return users
+
+
+known_faces = load_registered_faces()
+
+# ---------------- EMBEDDING (SAME AS REGISTRATION) ----------------
 def extract_embedding(landmarks):
     emb = []
     for lm in landmarks:
         emb.extend([lm.x, lm.y, lm.z])
-    return np.array(emb)
 
-# ---------------- MAIN ----------------
-def main():
-    if not os.path.exists(REGISTERED_FACE):
-        print("ERROR: No registered face found")
-        return
+    emb = np.array(emb, dtype=np.float32)
+    norm = np.linalg.norm(emb)
+    if norm > 0:
+        emb /= norm
 
-    registered_embedding = np.load(REGISTERED_FACE)
+    return emb
 
-    mp_face_mesh = mp.solutions.face_mesh
-    face_mesh = mp_face_mesh.FaceMesh(
-        max_num_faces=1,
-        refine_landmarks=True,
-        min_detection_confidence=0.5,
-        min_tracking_confidence=0.5
-    )
 
-    cap = cv2.VideoCapture(0)
+def l2_distance(a, b):
+    return np.linalg.norm(a - b)
 
-    blink_counter = 0
-    blink_detected = False
-    head_turn_detected = False
 
-    nose_history = deque(maxlen=15)
-    motion_history = deque(maxlen=10)
+print("\n[INFO] Authentication Started")
+print("[INFO] Blink to authenticate | Press Q to quit\n")
 
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
+# ---------------- MAIN LOOP ----------------
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        break
 
-        h, w, _ = frame.shape
-        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        results = face_mesh.process(rgb)
+    frame = cv2.flip(frame, 1)
+    faces = detect_faces(frame)
 
-        status = "ACCESS DENIED"
-        color = (0, 0, 255)
-
-        if results.multi_face_landmarks:
-            landmarks = results.multi_face_landmarks[0].landmark
-
-            # -------- BLINK CHECK --------
-            left_ear = eye_aspect_ratio(LEFT_EYE, landmarks, w, h)
-            right_ear = eye_aspect_ratio(RIGHT_EYE, landmarks, w, h)
-            ear = (left_ear + right_ear) / 2.0
-
-            if ear < EAR_THRESHOLD:
-                blink_counter += 1
-            else:
-                if blink_counter >= EYE_CLOSED_FRAMES:
-                    blink_detected = True
-                blink_counter = 0
-
-            # -------- HEAD TURN CHECK --------
-            nose_x = landmarks[NOSE_TIP].x
-            nose_history.append(nose_x)
-
-            if len(nose_history) >= 10:
-                if abs(nose_history[-1] - nose_history[0]) > NOSE_MOVE_THRESHOLD:
-                    head_turn_detected = True
-
-            # -------- NATURAL MOTION --------
-            motion = np.std([p.x for p in landmarks])
-            motion_history.append(motion)
-            natural_motion = np.mean(motion_history) > MOTION_THRESHOLD
-
-            # -------- FACE MATCH --------
-            current_embedding = extract_embedding(landmarks)
-            distance = np.linalg.norm(registered_embedding - current_embedding)
-            face_matched = distance < MATCH_THRESHOLD
-
-            # -------- FINAL DECISION --------
-            if blink_detected and head_turn_detected and natural_motion and face_matched:
-                status = "ACCESS GRANTED"
-                color = (0, 255, 0)
-
-            # -------- DEBUG INFO --------
-            cv2.putText(frame, f"Blink: {blink_detected}", (30, 80),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255), 1)
-            cv2.putText(frame, f"HeadTurn: {head_turn_detected}", (30, 110),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255), 1)
-            cv2.putText(frame, f"Match: {face_matched}", (30, 140),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255), 1)
-
-        cv2.putText(frame, status, (30, 50),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1.2, color, 3)
-
-        cv2.imshow("Face Authentication", frame)
+    # ---------- FACE COUNT CHECK ----------
+    if len(faces) != 1:
+        msg = "NO FACE" if len(faces) == 0 else "MULTIPLE FACES"
+        cv2.putText(frame, msg, (30, 40),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+        cv2.imshow("Authentication", frame)
 
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
+        continue
 
-    cap.release()
-    cv2.destroyAllWindows()
+    # ---------- LANDMARKS ----------
+    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    results = face_mesh.process(rgb)
 
-if __name__ == "__main__":
-    main()
+    if not results.multi_face_landmarks:
+        continue
 
+    landmarks = results.multi_face_landmarks[0].landmark
+
+    # ---------- LIVENESS ----------
+    live_ok = blink_detector.update(landmarks)
+
+    status = "Blink to authenticate"
+    color = (0, 255, 255)
+
+    if live_ok:
+        query_emb = extract_embedding(landmarks)
+
+        best_user = None
+        best_dist = float("inf")
+
+        for user, refs in known_faces.items():
+            for ref in refs:
+                dist = l2_distance(ref, query_emb)
+                if dist < best_dist:
+                    best_dist = dist
+                    best_user = user
+
+        if best_dist < MATCH_THRESHOLD:
+            status = f"ACCESS GRANTED: {best_user}"
+            color = (0, 255, 0)
+        else:
+            status = "ACCESS DENIED"
+            color = (0, 0, 255)
+
+    cv2.putText(frame, status, (30, 40),
+                cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
+
+    cv2.imshow("Authentication", frame)
+
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+cap.release()
+cv2.destroyAllWindows()

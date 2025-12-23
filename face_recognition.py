@@ -1,77 +1,113 @@
-import cv2
-import mediapipe as mp
-import numpy as np
+"""
+face_recognition.py
+
+Stage 6 — Face Recognition Module
+
+Responsibilities:
+- Convert facial landmarks to embeddings
+- Load registered face embeddings
+- Match live embeddings against registered users
+
+Does NOT:
+- Open camera
+- Draw UI
+- Perform liveness detection
+"""
+
 import os
+import numpy as np
+from typing import Optional, Tuple
 
-REGISTERED_FACE = "registered_face.npy"
-MATCH_THRESHOLD = 0.6   # tune if needed
+# ---------------- STORAGE ----------------
 
-def extract_embedding(landmarks):
-    embedding = []
+FACES_DIR = "faces"
+os.makedirs(FACES_DIR, exist_ok=True)
+
+MATCH_THRESHOLD = 0.55
+
+
+# ---------------- EMBEDDINGS ----------------
+
+def extract_embedding_from_landmarks(landmarks) -> np.ndarray:
+    """
+    Convert landmarks into a normalized embedding.
+    landmarks: iterable with .x .y .z
+    """
+    emb = []
     for lm in landmarks:
-        embedding.extend([lm.x, lm.y, lm.z])
-    return np.array(embedding)
+        emb.extend([lm.x, lm.y, getattr(lm, "z", 0.0)])
 
-def main():
-    if not os.path.exists(REGISTERED_FACE):
-        print("ERROR: No registered face found")
-        return
+    emb = np.array(emb, dtype=np.float32)
 
-    registered_embedding = np.load(REGISTERED_FACE)
+    norm = np.linalg.norm(emb)
+    if norm > 0:
+        emb /= norm
 
-    mp_face_mesh = mp.solutions.face_mesh
-    face_mesh = mp_face_mesh.FaceMesh(
-        max_num_faces=1,
-        refine_landmarks=True,
-        min_detection_confidence=0.5,
-        min_tracking_confidence=0.5
-    )
+    return emb
 
-    cap = cv2.VideoCapture(0)
 
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
+def l2_distance(a: np.ndarray, b: np.ndarray) -> float:
+    return float(np.linalg.norm(a - b))
 
-        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        results = face_mesh.process(rgb)
 
-        status = "NO FACE"
+# ---------------- LOAD / SAVE ----------------
 
-        if results.multi_face_landmarks:
-            landmarks = results.multi_face_landmarks[0].landmark
-            current_embedding = extract_embedding(landmarks)
+def load_known_faces():
+    """
+    Loads all face embeddings from faces/*.npy
+    Each file can contain multiple embeddings (rotation support)
+    """
+    known = {}
 
-            distance = np.linalg.norm(
-                registered_embedding - current_embedding
-            )
+    for file in os.listdir(FACES_DIR):
+        if file.endswith(".npy"):
+            name = file.replace(".npy", "")
+            path = os.path.join(FACES_DIR, file)
+            known[name] = np.load(path)
 
-            if distance < MATCH_THRESHOLD:
-                status = "FACE MATCHED"
-                color = (0,255,0)
-            else:
-                status = "FACE NOT MATCHED"
-                color = (0,0,255)
+    return known
 
-            cv2.putText(frame, f"Distance: {distance:.3f}",
-                        (30, 80),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255), 1)
 
-        else:
-            color = (0,0,255)
+def save_face(name: str, embedding: np.ndarray):
+    """
+    Save first embedding for a user
+    """
+    path = os.path.join(FACES_DIR, f"{name}.npy")
+    if os.path.exists(path):
+        raise ValueError("Name already exists")
 
-        cv2.putText(frame, status, (30, 40),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.9, color, 2)
+    np.save(path, embedding[np.newaxis, :])
 
-        cv2.imshow("Face Recognition", frame)
 
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
+def append_face(name: str, embedding: np.ndarray):
+    """
+    Append rotation embeddings (left/right/up/down)
+    """
+    path = os.path.join(FACES_DIR, f"{name}.npy")
+    data = np.load(path)
+    data = np.vstack([data, embedding])
+    np.save(path, data)
 
-    cap.release()
-    cv2.destroyAllWindows()
 
-if __name__ == "__main__":
-    main()
+# ---------------- RECOGNITION ----------------
 
+def recognize_face(embedding: np.ndarray) -> Tuple[Optional[str], float]:
+    """
+    Match live embedding against registered faces
+    """
+    known_faces = load_known_faces()
+
+    best_name = None
+    best_score = float("inf")
+
+    for name, stored_embeddings in known_faces.items():
+        for ref in stored_embeddings:
+            dist = l2_distance(ref, embedding)
+            if dist < best_score:
+                best_score = dist
+                best_name = name
+
+    if best_score < MATCH_THRESHOLD:
+        return best_name, best_score
+
+    return None, best_score
