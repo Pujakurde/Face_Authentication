@@ -16,9 +16,6 @@ The entire system works **fully offline** without using any cloud services or ex
 - Anti-spoofing against photos and static images  
 - Fully offline processing  
 
-> ⚠️ **Note:**  
-> Authentication logic, biometric embeddings, and registered face data are intentionally **excluded from this repository** for privacy and security reasons.
-
 ---
 
 ## System Overview
