@@ -248,7 +248,7 @@ It is **not intended for production-level biometric security systems**.
 ## Author
 
 **Puja Kurde**
-Data Science & Computer Vision Project
+Data Science Project
 
 ---
 
