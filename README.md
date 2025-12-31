@@ -67,7 +67,7 @@ Authentication Decision
 
 ## Core Modules
 
-### 1.Camera Module (camera.py)
+### 1. Camera Module (camera.py)
 
 Handles real-time video input.
 
@@ -81,7 +81,7 @@ Purpose:
 
 ---
 
-### 2.Face Detection Module (face_detection.py)
+### 2. Face Detection Module (face_detection.py)
 
 Detects whether a human face is present in each frame.
 
@@ -100,7 +100,7 @@ Limitations:
 
 ---
 
-### 3.Face Landmarks Module (face_landmarks.py)
+### 3. Face Landmarks Module (face_landmarks.py)
 
 Extracts and tracks facial landmarks.
 
@@ -116,7 +116,7 @@ Purpose:
 
 ---
 
-### 4.Face-ID System (face_id_sys.py)
+### 4. Face-ID System (face_id_sys.py)
 
 The main controller of the system.
 
