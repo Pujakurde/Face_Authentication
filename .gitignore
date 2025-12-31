@@ -1,8 +1,11 @@
 __pycache__/
+*.pyc
 venv/
-.env
-.vscode/
-*.db
-*.zip
-*.csv
-*.log
+venv_clean/
+face_embeddings/
+data/
+auth_log.txt
+.idea/
+.qodo/
+face_recognition/
+tests/

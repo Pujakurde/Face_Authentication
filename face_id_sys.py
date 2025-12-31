@@ -1,33 +1,53 @@
-# face_id_sys.py
 """
-Face ID System (FINAL SECURE VERSION)
+Face ID System — FINAL iPhone-Like Version (Webcam Safe)
 
 Features:
-- Face Registration
-- Face Authentication
-- Continuous liveness (blink-based)
-- Real head rotation (not frame movement)
-- Prevents blink-then-photo attack
+- Face detection (1 face only)
+- Multi-pose registration
+- Landmark-based face embedding (fixed 468)
+- Blink OR mouth-movement liveness
+- Continuous liveness window
+- Natural head movement detection
+- Attention check (front pose)
+- Stable multi-frame authentication
+- Different exit messages for GRANTED vs DENIED
+- Authentication logging to auth_log.txt
 """
 
 import cv2
 import mediapipe as mp
 import numpy as np
 import os
+import time
+from datetime import datetime
 from face_detection import detect_faces
 
-# CONFIG 
+# ================= CONFIG =================
 BASE_DIR = "face_embeddings"
-MATCH_THRESHOLD = 0.85
+LOG_FILE = "auth_log.txt"
+
+MATCH_THRESHOLD = 0.95
+STABLE_FRAMES_REQUIRED = 8
+AUTH_TIME_WINDOW = 1.0
+
 POSES = ["front", "left", "right", "up"]
 
-EAR_THRESHOLD = 0.21
-BLINK_FRAMES = 2
-LIVENESS_VALID_FRAMES = 15   # ~0.5 sec window
+EAR_THRESHOLD = 0.27
+LIVENESS_WINDOW = 10
+
+MOVEMENT_THRESHOLD = 0.001
+MOVEMENT_WINDOW = 15
+
+FACE_LANDMARK_COUNT = 468
+
+# Mouth fallback
+MOUTH_TOP = 13
+MOUTH_BOTTOM = 14
+MOUTH_THRESHOLD = 0.03
 
 os.makedirs(BASE_DIR, exist_ok=True)
 
-#  MEDIAPIPE 
+# ================= MEDIAPIPE =================
 mp_face_mesh = mp.solutions.face_mesh
 face_mesh = mp_face_mesh.FaceMesh(
     refine_landmarks=True,
@@ -35,33 +55,46 @@ face_mesh = mp_face_mesh.FaceMesh(
     min_tracking_confidence=0.6
 )
 
-# BLINK + CONTINUOUS LIVENESS 
 LEFT_EYE = [33, 160, 158, 133, 153, 144]
 RIGHT_EYE = [362, 385, 387, 263, 373, 380]
 
-
+# ================= LIVENESS =================
 class LivenessDetector:
     def __init__(self):
-        self.eye_counter = 0
         self.live_frames = 0
+        self.nose_history = []
+        self.is_moving = False
 
     def _ear(self, lm, idx):
         p = [lm[i] for i in idx]
         A = np.linalg.norm([p[1].x - p[5].x, p[1].y - p[5].y])
         B = np.linalg.norm([p[2].x - p[4].x, p[2].y - p[4].y])
         C = np.linalg.norm([p[0].x - p[3].x, p[0].y - p[3].y])
-        return (A + B) / (2.0 * C)
+        return (A + B) / (2.0 * C + 1e-6)
 
     def update(self, landmarks):
-        ear = (self._ear(landmarks, LEFT_EYE) +
-               self._ear(landmarks, RIGHT_EYE)) / 2
+        # ---- Natural movement ----
+        nose = landmarks[1]
+        self.nose_history.append([nose.x, nose.y])
+        if len(self.nose_history) > MOVEMENT_WINDOW:
+            self.nose_history.pop(0)
 
-        if ear < EAR_THRESHOLD:
-            self.eye_counter += 1
-        else:
-            if self.eye_counter >= BLINK_FRAMES:
-                self.live_frames = LIVENESS_VALID_FRAMES
-            self.eye_counter = 0
+        if len(self.nose_history) == MOVEMENT_WINDOW:
+            std = np.std(self.nose_history, axis=0).mean()
+            self.is_moving = std > MOVEMENT_THRESHOLD
+
+        # ---- Blink ----
+        ear = (self._ear(landmarks, LEFT_EYE) +
+               self._ear(landmarks, RIGHT_EYE)) * 0.5
+
+        # ---- Mouth open ----
+        mouth_open = abs(
+            landmarks[MOUTH_TOP].y - landmarks[MOUTH_BOTTOM].y
+        ) > MOUTH_THRESHOLD
+
+        if ear < EAR_THRESHOLD or mouth_open:
+            self.live_frames = LIVENESS_WINDOW
+            return True
 
         if self.live_frames > 0:
             self.live_frames -= 1
@@ -69,81 +102,93 @@ class LivenessDetector:
 
         return False
 
-
-# REAL HEAD POSE 
+# ================= HEAD POSE =================
 def detect_head_pose(landmarks):
     nose = landmarks[1]
-    left_eye = landmarks[33]
-    right_eye = landmarks[263]
+    le = landmarks[33]
+    re = landmarks[263]
 
-    nose_left = abs(nose.x - left_eye.x)
-    nose_right = abs(right_eye.x - nose.x)
+    dx_l = abs(nose.x - le.x)
+    dx_r = abs(re.x - nose.x)
+    pitch = ((le.y + re.y) * 0.5) - nose.y
 
-    eye_avg_y = (left_eye.y + right_eye.y) / 2
-    pitch = eye_avg_y - nose.y
-
-    if nose_left - nose_right > 0.03:
+    if (dx_l - dx_r) > 0.03:
         return "right"
-    if nose_right - nose_left > 0.03:
+    if (dx_r - dx_l) > 0.03:
         return "left"
     if pitch > 0.03:
         return "up"
-
     return "front"
 
+def attention_check(pose):
+    return pose == "front"
 
-#EMBEDDING
+# ================= EMBEDDING =================
 def extract_embedding(landmarks):
-    emb = np.array([[lm.x, lm.y, lm.z] for lm in landmarks], dtype=np.float32)
-    emb = emb.flatten()
+    pts = []
+    for i in range(FACE_LANDMARK_COUNT):
+        lm = landmarks[i]
+        pts.extend([lm.x, lm.y, lm.z])
+
+    emb = np.array(pts, dtype=np.float32)
     emb /= np.linalg.norm(emb) + 1e-6
     return emb
 
-
-# LOAD USERS
+# ================= LOAD USERS =================
 def load_users():
     users = {}
     for user in os.listdir(BASE_DIR):
-        user_dir = os.path.join(BASE_DIR, user)
-        if not os.path.isdir(user_dir):
+        udir = os.path.join(BASE_DIR, user)
+        if not os.path.isdir(udir):
             continue
 
         vecs = []
-        for f in os.listdir(user_dir):
+        for f in os.listdir(udir):
             if f.endswith(".npy"):
-                v = np.load(os.path.join(user_dir, f))
-                v /= np.linalg.norm(v) + 1e-6
-                vecs.append(v)
+                v = np.load(os.path.join(udir, f))
+                if v.shape[0] == FACE_LANDMARK_COUNT * 3:
+                    vecs.append(v)
 
-        if vecs:
+        if len(vecs) >= 2:
             users[user] = np.mean(vecs, axis=0)
 
     return users
 
+# ================= LOGGING =================
+def log_auth(result, user, score):
+    with open(LOG_FILE, "a") as f:
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        f.write(f"{ts} | {result} | user={user} | score={score:.3f}\n")
 
-# MODE SELECT 
+# ================= MODE =================
 mode = input("Select mode (register / authenticate): ").strip().lower()
 cap = cv2.VideoCapture(0)
+
 liveness = LivenessDetector()
+stable_count = 0
+
+access_granted = False
+decision_made = False
+matched_user = "Unknown"
+best_score = 999.0
 
 if mode == "register":
     username = input("Enter username: ").strip()
     user_dir = os.path.join(BASE_DIR, username)
     os.makedirs(user_dir, exist_ok=True)
     step = 0
-    print("\n[INFO] Registration started")
-    print("[INFO] Blink and turn head as instructed\n")
+    print("[INFO] Registration started")
 
 elif mode == "authenticate":
-    known_users = load_users()
-    print("\n[INFO] Authentication started")
-    print("[INFO] Blink and stay live to authenticate\n")
+    users = load_users()
+    auth_start = None
+    print("[INFO] Authentication started")
 
 else:
     print("Invalid mode")
     exit()
 
-# MAIN LOOP 
+# ================= MAIN LOOP =================
 while True:
     ret, frame = cap.read()
     if not ret:
@@ -155,8 +200,9 @@ while True:
     if len(faces) != 1:
         cv2.putText(frame, "ONE FACE ONLY", (30, 40),
                     cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-        cv2.imshow("Face ID System", frame)
+        cv2.imshow("Face ID", frame)
         if cv2.waitKey(1) & 0xFF == ord('q'):
+            log_auth("DENIED", "Unknown", 999.0)
             break
         continue
 
@@ -166,62 +212,104 @@ while True:
         continue
 
     landmarks = res.multi_face_landmarks[0].landmark
-    is_live_now = liveness.update(landmarks)
     pose = detect_head_pose(landmarks)
+    live = liveness.update(landmarks)
+    emb = extract_embedding(landmarks)
 
-    status = "Blink to prove liveness"
+    status = ""
     color = (0, 255, 255)
 
-    # REGISTER 
+    # ---------- REGISTER ----------
     if mode == "register":
-        required_pose = POSES[step]
-        status = f"Turn head: {required_pose}"
+        req = POSES[step]
+        status = f"Turn head: {req}"
 
-        if is_live_now and pose == required_pose:
-            emb = extract_embedding(landmarks)
-            np.save(os.path.join(user_dir, f"{required_pose}.npy"), emb)
-            print(f"[REGISTERED] {required_pose}")
+        if live and pose == req:
+            np.save(os.path.join(user_dir, f"{req}.npy"), emb)
             step += 1
             liveness = LivenessDetector()
+            time.sleep(0.5)
 
-            if step == len(POSES):
-                print("\n[INFO] Registration completed")
+            if step >= len(POSES):
+                print("[INFO] Registration completed")
                 break
 
-    # AUTHENTICATE 
+    # ---------- AUTHENTICATE ----------
     else:
-        if is_live_now:
-            query = extract_embedding(landmarks)
-            best_user, best_dist = None, 999
-
-            for user, ref in known_users.items():
-                d = np.linalg.norm(ref - query)
-                if d < best_dist:
-                    best_dist, best_user = d, user
-
-            if best_dist < MATCH_THRESHOLD:
-                status = f"ACCESS GRANTED: {best_user}"
+        if decision_made:
+            if access_granted:
+                status = "ACCESS GRANTED | PRESS E TO EXIT"
                 color = (0, 255, 0)
             else:
-                status = "ACCESS DENIED"
+                status = "ACCESS DENIED | PRESS Q TO QUIT"
                 color = (0, 0, 255)
 
-        else:
-            status = "LIVENESS LOST"
+        elif not attention_check(pose):
+            status = "LOOK AT CAMERA"
             color = (0, 0, 255)
+            stable_count = 0
+            auth_start = None
+
+        elif not liveness.is_moving:
+            status = "MOVE HEAD NATURALLY"
+            color = (0, 0, 255)
+            stable_count = 0
+            auth_start = None
+
+        elif not live:
+            status = "BLINK / MOVE MOUTH"
+            color = (0, 0, 255)
+            stable_count = 0
+            auth_start = None
+
+        else:
+            if auth_start is None:
+                auth_start = time.time()
+
+            if (time.time() - auth_start) >= AUTH_TIME_WINDOW:
+                best_user = None
+                best_dist = 999.0
+
+                for u, ref in users.items():
+                    d = np.linalg.norm(ref - emb)
+                    if d < best_dist:
+                        best_dist = d
+                        best_user = u
+
+                best_score = best_dist
+                matched_user = best_user if best_user else "Unknown"
+
+                if best_dist < MATCH_THRESHOLD:
+                    stable_count += 1
+                else:
+                    stable_count = 0
+
+                if stable_count >= STABLE_FRAMES_REQUIRED:
+                    status = f"ACCESS GRANTED: {best_user}"
+                    color = (0, 255, 0)
+                    access_granted = True
+                    decision_made = True
+                    log_auth("GRANTED", best_user, best_dist)
+                else:
+                    status = "VERIFYING..."
+                    color = (0, 255, 255)
 
     cv2.putText(frame, status, (30, 40),
-    
                 cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
-
     cv2.putText(frame, f"Pose: {pose}", (30, 80),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255
-                , 255), 2)
+                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
 
-    cv2.imshow("Face ID System", frame)
+    cv2.imshow("Face ID", frame)
 
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
+    key = cv2.waitKey(1) & 0xFF
+    if decision_made:
+        if access_granted and key == ord('e'):
+            print("[INFO] Access granted — exiting Face ID system")
+            break
+        elif not access_granted and key == ord('q'):
+            log_auth("DENIED", matched_user, best_score)
+            print("[WARNING] Access denied — system terminated")
+            break
 
 cap.release()
 cv2.destroyAllWindows()
