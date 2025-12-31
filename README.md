@@ -1,254 +1,163 @@
-# Face Authentication System (Face-ID Style)
 
-This project implements an **iPhone-like Face Authentication system** using **Python, OpenCV, and MediaPipe**.
-It verifies users through a **live camera feed** and includes **liveness detection and anti-spoofing mechanisms** to reduce the risk of unauthorized access using photos, videos, or screen replays.
+# Face Authentication System
 
-The system works **completely offline**, without storing biometric data or sending information to external servers.
+A **secure, webcam-based Face Authentication system** that verifies user identity using **facial landmarks, liveness detection, and natural head movement**, inspired by **iPhone Face ID–like behavior**, without using depth sensors or external APIs.
 
 ---
 
-## Key Objectives
+## Project Overview
 
-* Verify that a **real human face** is present in front of the camera
-* Detect **live facial behavior** instead of static images
-* Prevent common spoofing attacks such as:
+This project implements a **Face Authentication system** designed to:
 
-  * Printed photos
-  * Mobile screen replays
-  * Static images
+* Authenticate **only a live, registered human face**
+* Prevent access using **photos, printed images, or static replays**
+* Allow exit or continuation **only after a final authentication decision**
 
----
-
-## Features
-
-* Real-time face detection
-* High-resolution facial landmark extraction (468 points)
-* Liveness detection using:
-
-  * Eye blinking
-  * Head movement
-  * Natural facial motion
-* Face-ID–style guided interaction
-* Anti-spoofing against photos and static images
-* Fully offline and privacy-friendly
+The system is developed using **Python, OpenCV, and MediaPipe**, and is suitable for **academic projects and real-time webcam environments**.
 
 ---
 
-## System Overview
+##  Key Features
 
-The system processes frames captured from a **live webcam**.
-Each frame is independently analyzed to ensure that:
+* **Single Face Enforcement**
+  Ensures only one face is present in the frame.
 
-1. A face is present
-2. The face belongs to a live human
-3. Facial motion is natural and continuous
+* **Landmark-Based Face Representation**
+  Uses **468 facial landmarks** from MediaPipe FaceMesh.
 
-Only after passing these checks does the system allow authentication.
+* **Liveness Detection**
+
+  * Eye blink detection
+  * Mouth movement detection
+  * Continuous liveness window
+
+* **Natural Head Movement Detection**
+
+  * Detects real, subtle head motion
+  * Prevents static photo spoofing
+
+* **Attention Check**
+
+  * Requires the user to look **directly at the camera**
+
+* **Stable Multi-Frame Authentication**
+
+  * Authentication decision based on multiple consecutive frames
+
+* **Controlled Exit Logic**
+
+  * **Access Granted → Press `E` to exit**
+  * **Access Denied → Press `Q` to quit**
+
+* **Authentication Logging**
+
+  * Logs results (`GRANTED / DENIED`) with timestamp into `auth_log.txt`
 
 ---
 
-## System Architecture
+## Technologies Used
+
+* **Python 3.10**
+* **OpenCV**
+* **MediaPipe (FaceMesh)**
+* **NumPy**
+
+> No external APIs, cloud services, or deep learning models are used.
+
+---
+
+## Project Structure
 
 ```
-Camera
-   ↓
-Face Detection
-   ↓
-Face Landmarks Extraction
-   ↓
-Face Registration
-   ↓
-Liveness Detection
-   ↓
-Authentication Decision
+Face_Authentication/
+│
+├── camera.py
+├── face_detection.py
+├── face_id_sys.py        # Main authentication logic
+├── face_landmarks.py
+├── face_recognition.py
+├── README.md
+├── requirements.txt
+└── .gitignore
 ```
 
 ---
 
-## Core Modules
+## How to Run the Project
 
----
-
-### 1. Camera Module (`camera.py`)
-
-The camera module is responsible for handling video input.
-
-**Responsibilities**
-
-* Capture real-time video frames from the webcam
-* Ensure stable camera initialization
-* Release camera resources safely
-
-**Purpose**
-
-* Provide live input to the authentication system
-
----
-
-### 2. Face Detection Module (`face_detection.py`)
-
-This module detects whether a human face is present in each frame.
-
-**Responsibilities**
-
-* Detect faces in real time
-* Ensure at least one face is visible
-* Handle single-face and multiple-face scenarios
-
-**Technology Used**
-
-* MediaPipe Face Detection
-
-**Output**
-
-* Face bounding boxes
-* Detection confidence
-
-**Limitations**
-
-* Does not identify the person
-* Does not perform liveness checks
-* Does not grant or deny access
-
----
-
-### 3. Face Landmarks Module (`face_landmarks.py`)
-
-Face landmarks represent key facial points such as eyes, nose, lips, and jawline.
-
-**Details**
-
-* Uses MediaPipe Face Mesh
-* Extracts 468 facial landmarks
-* Tracks facial geometry across frames
-
-**Purpose**
-
-* Eye blink detection
-* Head movement estimation
-* Support liveness verification
-
----
-
-### 4. Face-ID System Controller (`face_id_sys.py`)
-
-This is the main controller of the system.
-
-**Responsibilities**
-
-* Integrates camera, face detection, and landmarks
-* Guides the user with Face-ID–style instructions
-* Displays real-time feedback on the screen
-* Manages registration and authentication logic
-
----
-
-## Liveness Detection (Anti-Spoofing)
-
-Liveness detection ensures that the detected face belongs to a **real, live human** and not a static image.
-
-### Why Liveness Detection Is Required
-
-Without liveness detection, attackers could bypass authentication using:
-
-* Printed photos
-* Mobile screens
-* Static images
-
----
-
-### Liveness Checks Implemented
-
-* **Eye blinking detection**
-* **Head movement detection** (left, right, up)
-* **Natural facial motion across frames**
-
-The system requires consistent live behavior over multiple frames before allowing access.
-
----
-
-### Spoofing Attacks Prevented
-
-* Printed photographs
-* Static images
-* Screen replay attacks
-
----
-
-### Scope of Liveness Detection
-
-* Confirms **live presence**
-* Does **not identify** who the person is
-* Works entirely offline
-
----
-
-## Privacy and Security
-
-* No face images are permanently stored
-* No biometric data is sent to the cloud
-* No external APIs are used
-* All processing happens locally on the user’s system
-
----
-
-## Requirements
-
-* Python 3.9+
-* OpenCV
-* MediaPipe
-* NumPy
-
----
-
-## Installation
-
-Install the required dependencies:
+### 1. Install dependencies
 
 ```bash
-pip install opencv-python mediapipe numpy
+pip install -r requirements.txt
 ```
 
----
-
-## How to Run
-
-Run the main Face-ID system script:
+### 2. Run the system
 
 ```bash
 python face_id_sys.py
 ```
 
-Follow the on-screen **Face-ID–style instructions** for registration and authentication.
+### 3. Select mode
+
+```text
+register       → Register a new user
+authenticate   → Authenticate an existing user
+```
 
 ---
 
-## Limitations
+## Authentication Flow
 
-* The system uses a **standard RGB webcam**
-* Extremely high-quality video replays may still bypass detection
-* Depth sensing and infrared cameras are not supported
+1. User faces the camera
+2. System checks:
 
-These limitations are common in software-only face authentication systems.
+   * One face only
+   * Attention (front pose)
+   * Natural head movement
+   * Blink or mouth movement
+3. Face embedding is matched with registered users
+4. Final decision:
+
+   * **Access Granted** → User can exit & continue system
+   * **Access Denied** → System terminates
 
 ---
 
-## Educational Purpose
+## Security Considerations
+
+### Prevented Attacks
+
+* Printed photo attacks
+* Static image replay
+* Simple video replays
+
+### Known Limitation
+
+* **Live video-call (VC) attacks** may succeed under controlled cooperation
+  (This limitation exists in most webcam-only systems and requires hardware depth sensors to fully prevent.)
+
+---
+
+## Academic Note
 
 This project is designed for:
 
-* Computer Vision learning
-* Understanding face authentication pipelines
-* Studying liveness detection techniques
+* **Academic demonstrations**
+* **Real-time webcam authentication**
+* **Understanding biometric security concepts**
 
-It is **not intended for production-level biometric security systems**.
+It does **not claim hardware-level security** like iPhone Face ID.
 
 ---
 
 ## Author
 
 **Puja Kurde**
-Data Science Project
+B.Tech – Data Science
+Face Authentication Project
 
 ---
 
+## License
+
+This project is for **educational purposes only**.
